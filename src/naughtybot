@@ -1,0 +1,162 @@
+#!/usr/bin/bash
+set -e
+CWD="$(cd "$(dirname "$0")" && pwd)"
+STATE_DIR="$(cd "$CWD/.." && pwd)"
+SECRET_DIR="$(cd "$CWD/.." && pwd)"
+
+main()
+{
+    STATE="$STATE_DIR/naughtybot-state.json"
+    SECRET="$SECRET_DIR/naughtybot-secret.json"
+
+    [[ -e $STATE ]] || echo "{}" > "$STATE"
+    [[ -e $SECRET ]] || echo "{}" > "$SECRET"
+
+    requires-bin FORMAT_MAIL "$CWD/format-mail"
+    requires-bin JQ "$(which jq)"
+    requires-bin FLOCK "$(which flock)"
+    requires-bin CURL "$(which curl)"
+
+    local secrets
+    secrets="$(read-secret secret_do-read)"
+    {
+        read -r SECRET_BOT_TOKEN
+        read -r SECRET_BOT_CHAT
+        read -r SECRET_MAIL_SERVER
+        read -r SECRET_MAIL_PORT
+        read -r SECRET_MAIL_USERNAME
+        read -r SECRET_MAIL_PASSWORD
+        read -r SECRET_MAIL_INSECURE
+    } <<< "$secrets"
+    SECRET_MAIL_URL="pop3s://$SECRET_MAIL_SERVER:$SECRET_MAIL_PORT"
+    SECRET_MAIL_CREDENTIAL="default login $SECRET_MAIL_USERNAME password $SECRET_MAIL_PASSWORD"
+    SECRET_MAIL_OPTION="$(<<< "$SECRET_MAIL_INSECURE" json -r 'if . then "-k" else "" end')"
+
+    "cmd_$1"
+}
+
+cmd_() { cmd_help; }
+cmd_--help() { cmd_help; }
+cmd_-h() { cmd_help; }
+
+cmd_help()
+{
+    printf "Naughtybot - Push notification based on Telegram.\n"
+    printf "\n"
+    printf "USAGE:\n"
+    printf "  %s [help | -h | --help]\n" "$0"
+    printf "  %s mail-check\n" "$0"
+    printf "  %s mail-mark-all-as-read\n" "$0"
+    printf "  echo MESSAGE | %s queue\n" "$0"
+    printf "  echo MESSAGE | %s send\n" "$0"
+    printf "  %s flush\n" "$0"
+    printf "  %s auto-flush\n" "$0"
+    printf "  %s auto-check\n" "$0"
+}
+
+cmd_mail-mark-all-as-read()
+{
+    printf "Checking for old mails...\n"
+
+    local list
+    list="$(fetch-mail-id-list-as-json)"
+    <<< "$list" update-state state_do-update-read-mails
+}
+
+# - requires_bin VAR path-to-bin
+# Ensures path-to-bin exists and is executable.
+# If so, it is equivalent to VAR="path-to-bin".
+# Otherwise, show error and abort.
+requires-bin()
+{
+    [[ -z $2 ]] && {
+        >&2 printf "Executable \e[1;31mnot found\e[0m: %s\n" "$1"
+        exit 1
+    }
+
+    [[ ! -x $2 ]] && {
+        >&2 printf "File \e[1;31mnot executable\e[0m: %s\n" "$2"
+        exit 1
+    }
+
+    declare -g "$1"="$2"
+}
+
+fetch-mail-id-list-as-json()
+{
+    local list
+    list="$(fetch-mail / -X UIDL)"
+    <<< "$list" json -Rs 'split("\n") | map(rtrimstr("\r") | select(length > 0) | split(" ") | { (.[1]): .[0] }) | add'
+}
+
+secret_do-read()
+{
+    json -r '(.bot | .token // "", .chat // ""), (.["mail-pop3s"] | .server // "", .port // 995, .username // "", .password // "", .insecure // false)' "$SECRET"
+}
+
+state_do-update-read-mails()
+{
+    local result
+    result="$(json --argfile state "$STATE" 'keys | map({ (.): true }) | add as $read | $state | .mail.read += $read')"
+    <<< "$result" cat > "$STATE"
+}
+
+# - transaction file mode func
+# file: The file to be locked
+# mode: -x for updating, -s for reading
+# func: A function to be run in the transaction
+transaction()
+{
+    (
+        "$FLOCK" "$2" 999
+        "$3"
+    ) 999>> "$1"
+}
+
+# - read-secret func
+# Invokes func in a read-only transaction to the secret config.
+read-secret()
+{
+    transaction "$SECRET" -s "$1"
+}
+
+# - update-secret func
+# Invokes func in a read-write transaction to the secret config.
+update-secret()
+{
+    transaction "$SECRET" -x "$1"
+}
+
+# - read-state func
+# Invokes func in a read-only transaction to the state config.
+read-state()
+{
+    transaction "$STATE" -s "$1"
+}
+
+# - update-state func
+# Invokes func in a read-write transaction to the state config.
+update-state()
+{
+    transaction "$STATE" -x "$1"
+}
+
+json()
+{
+    "$JQ" --indent 4 "$@"
+}
+
+fetch-mail()
+{
+    local uri="$1"
+    shift
+    [[ $uri != /* ]] && uri="/$uri"
+    local opts="-sSfL $SECRET_MAIL_OPTION"
+    "$CURL" $opts "$SECRET_MAIL_URL$uri" --netrc-file <(cat <<< "$SECRET_MAIL_CREDENTIAL") "$@" || {
+        >&2 printf "Failed to \e[1;31mfetch mail\e[0m: %s\n" "$SECRET_MAIL_URL$uri $*"
+        exit 1
+    }
+}
+
+main "$@"
+

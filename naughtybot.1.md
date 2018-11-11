@@ -12,7 +12,7 @@
     naughtybot auto-check
 
     ---------------------------------------------
-    naughtybot.json
+    naughtybot-state.json
     naughtybot-secret.json
 
 ## DETAILS
