@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+import sys
+import email
+
+def search_email_for_body(email):
+    try:
+        # Modified from https://stackoverflow.com/a/32840516
+        if email.is_multipart():
+            candidate = "*(Failed to find email body)*".encode('UTF-8')
+            for part in email.walk():
+                if part.is_multipart():
+                    continue
+                if part.get_content_disposition() is None:
+                    candidate = part.get_payload(decode=True)
+                    # text/plain always win the election
+                    if part.get_content_type() == 'text/plain':
+                        break
+            return candidate
+        else:
+            return email.get_payload(decode=True)
+    except:
+        return "*(Failed to parse email body)*".encode('UTF-8')
+
+m = email.message_from_file(sys.stdin)
+from_ = m["from"]
+subject = m["subject"] or "(no subject)"
+body = search_email_for_body(m).decode('UTF-8').strip()
+print(f"✉️ *{from_}*\\\n*{subject}*\n\n{body}\n")
+
