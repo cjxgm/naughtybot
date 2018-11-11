@@ -3,6 +3,7 @@ set -e
 CWD="$(cd "$(dirname "$0")" && pwd)"
 STATE_DIR="$(cd "$CWD/.." && pwd)"
 SECRET_DIR="$(cd "$CWD/.." && pwd)"
+SELF="$CWD/$(basename "$0")"
 
 main()
 {
@@ -34,7 +35,9 @@ main()
     SECRET_MAIL_CREDENTIAL="default login $SECRET_MAIL_USERNAME password $SECRET_MAIL_PASSWORD"
     SECRET_MAIL_OPTION="$(<<< "$SECRET_MAIL_INSECURE" json -r 'if . then "-k" else "" end')"
 
-    "cmd_$1"
+    local cmd="$1"
+    shift
+    "cmd_$cmd" "$@"
 }
 
 cmd_() { cmd_help; }
@@ -197,7 +200,7 @@ cmd_auto-flush()
         --on-active=0s \
         --on-unit-inactive=4s \
         -- \
-        "$0" flush
+        "$@" "$SELF" flush
 }
 
 # - requires_bin VAR path-to-bin

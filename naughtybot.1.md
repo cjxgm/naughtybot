@@ -9,7 +9,7 @@
     echo MESSAGE | naughtybot queue
     echo MESSAGE | naughtybot send
     naughtybot flush
-    naughtybot auto-flush
+    naughtybot auto-flush [proxychains -q]
     naughtybot auto-check
 
     ---------------------------------------------
