@@ -253,6 +253,8 @@ flush-first-message()
     <<< "$message" fetch-telegram /sendMessage > /dev/null
 
     update-state state_do-update-remove-first-message
+
+    sleep 4     # Telegram API has a limit: 20 messages per minute per chat. 3 is enough, but let's go for 4 to be sure.
 }
 
 secret_do-read()
