@@ -16,6 +16,7 @@ main()
     requires-bin JQ "$(which jq)"
     requires-bin FLOCK "$(which flock)"
     requires-bin CURL "$(which curl)"
+    requires-bin PANDOC "$(which pandoc)"
 
     local secrets
     secrets="$(read-secret secret_do-read)"
@@ -132,6 +133,11 @@ cmd_mail-mark-all-as-read()
     <<< "$list" update-state state_do-update-read-mails
 }
 
+cmd_queue()
+{
+    queue-message
+}
+
 # - requires_bin VAR path-to-bin
 # Ensures path-to-bin exists and is executable.
 # If so, it is equivalent to VAR="path-to-bin".
@@ -158,6 +164,21 @@ fetch-mail-id-list-as-json()
     <<< "$list" json -Rs 'split("\n") | map(rtrimstr("\r") | select(length > 0) | split(" ") | { (.[1]): .[0] }) | add'
 }
 
+# - echo MESSAGE | queue-message
+# Put message into sending queue.
+queue-message()
+{
+    "$PANDOC" -f commonmark -t commonmark | update-state state_do-update-append-message
+    printf "Queued message (%d in queue).\n" "$(message-count)"
+}
+
+# - count="$(message-count)"
+# Get number of messages in the sending queue.
+message-count()
+{
+    read-state state_do-read-message-count
+}
+
 secret_do-read()
 {
     json -r '(.bot | .token // "", .chat // ""), (.["mail-pop3s"] | .server // "", .port // 995, .username // "", .password // "", .insecure // false)' "$SECRET"
@@ -175,6 +196,18 @@ state_do-update-read-mails()
     local result
     result="$(json --argfile state "$STATE" 'keys | map({ (.): true }) | add as $read | $state | .mail.read += $read')"
     <<< "$result" cat > "$STATE"
+}
+
+state_do-update-append-message()
+{
+    local result
+    result="$(json -Rs --argfile state "$STATE" 'rtrimstr("\n") as $message | $state | .message.pending += [$message]')"
+    <<< "$result" cat > "$STATE"
+}
+
+state_do-read-message-count()
+{
+    json '.message.pending | length' "$STATE"
 }
 
 # - transaction file mode func
