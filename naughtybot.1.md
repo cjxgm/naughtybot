@@ -3,6 +3,7 @@
 ## SYNOPSIS
 
     naughtybot [help]
+    naughtybot setup
     naughtybot mail-check
     naughtybot mail-mark-all-as-read
     echo MESSAGE | naughtybot queue
@@ -20,6 +21,7 @@
 send = queue + flush
 queue: Put message from stdin into sending queue.
 flush: Send queued message to telegram. This is blocking operation.
+setup: Edit or create naughtybot-secret.json.
 mail-check: Check new mails, format properly, and put into send queue.
 mail-mark-all-as-read: On your first run, mark all existing mails as read. Otherwise, all your old mails will be send.
 auto-flush: Start a systemd transient user unit to monitor changes to the queue. Flushing will happen automatically when the queue is modified.

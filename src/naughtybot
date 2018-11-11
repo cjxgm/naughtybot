@@ -45,6 +45,7 @@ cmd_help()
     printf "\n"
     printf "USAGE:\n"
     printf "  %s [help | -h | --help]\n" "$0"
+    printf "  %s setup\n" "$0"
     printf "  %s mail-check\n" "$0"
     printf "  %s mail-mark-all-as-read\n" "$0"
     printf "  echo MESSAGE | %s queue\n" "$0"
@@ -52,6 +53,74 @@ cmd_help()
     printf "  %s flush\n" "$0"
     printf "  %s auto-flush\n" "$0"
     printf "  %s auto-check\n" "$0"
+}
+
+cmd_setup()
+{
+    requires-bin DIALOG "$(which dialog)"
+    local result
+    result="$(
+        "$DIALOG" \
+            --stdout \
+            --insecure \
+            --backtitle "Naughtybot" \
+            --title " Setup Secrets " \
+            --mixedform " Editing $SECRET" 0 80 7 \
+                "BOT" 1 1 "" 0 0 0 0 0 \
+                "Token" 2 3 "$SECRET_BOT_TOKEN" 2 9 48 64 0 \
+                "Chat" 2 59 "$SECRET_BOT_CHAT" 2 64 10 20 0 \
+                "POP3 SSL Mail" 4 1 "" 0 0 0 0 0 \
+                "Host" 5 3 "$SECRET_MAIL_SERVER" 5 8 49 65536 0 \
+                "Port" 5 59 "$SECRET_MAIL_PORT" 5 64 10 5 0 \
+                "Username" 6 3 "$SECRET_MAIL_USERNAME" 6 12 25 1024 0 \
+                "Password" 6 40 "$SECRET_MAIL_PASSWORD" 6 49 25 1024 1 \
+                "Insecure (Do not check SSL certs. Useful for self-signed certs.)" 7 3 "$SECRET_MAIL_INSECURE" 7 68 6 5 0
+    )" || {
+        "$DIALOG" \
+            --backtitle "Naughtybot" \
+            --title " Setup Secrets " \
+            --infobox "Canceled." 4 20
+        exit 0
+    }
+    local script="$(cat << "END"
+        split("\n")
+        | {
+            bot: {
+                token: .[0],
+                chat: .[1],
+            },
+            "mail-pop3s": {
+                server: .[2],
+                port: .[3]
+                    | (if . == "" then 995 else . end)
+                    | tonumber
+                    | (if . < 1 or . > 65535 then error("Port must be in range 1~65535") else . end)
+                ,
+                username: .[4],
+                password: .[5],
+                insecure: .[6]
+                    | (if . == "" then "false" else . end)
+                    | fromjson
+                ,
+            },
+        }
+        | if .["mail-pop3s"].port == 995 then del(.["mail-pop3s"].port) else . end
+        | if .["mail-pop3s"].insecure then . else del(.["mail-pop3s"].insecure) end
+END
+    )"
+    result="$(<<< "$result" json -Rs "$script")"
+
+    "$DIALOG" \
+        --backtitle "Naughtybot" \
+        --title " Setup Secrets " \
+        --infobox "Updating $SECRET" 8 60
+
+    <<< "$result" update-secret secret_do-update
+
+    "$DIALOG" \
+        --backtitle "Naughtybot" \
+        --title " Setup Secrets " \
+        --infobox "Updated $SECRET" 8 50
 }
 
 cmd_mail-mark-all-as-read()
@@ -92,6 +161,13 @@ fetch-mail-id-list-as-json()
 secret_do-read()
 {
     json -r '(.bot | .token // "", .chat // ""), (.["mail-pop3s"] | .server // "", .port // 995, .username // "", .password // "", .insecure // false)' "$SECRET"
+}
+
+secret_do-update()
+{
+    local result
+    result="$(json '.')"
+    <<< "$result" cat > "$SECRET"
 }
 
 state_do-update-read-mails()
