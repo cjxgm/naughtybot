@@ -125,6 +125,32 @@ END
         --infobox "Updated $SECRET" 8 50
 }
 
+cmd_mail-check()
+{
+    printf "Checking for new mails...\n"
+
+    local list
+    list="$(fetch-mail-id-list-as-json)"
+
+    local unread_mails
+    unread_mails="$(<<< "$list" read-state state_do-read-find-unread-mails)"
+
+    local unique_id session_id
+    while read -r unique_id session_id; do
+        [[ -z $unique_id ]] && break
+
+        local mail
+        printf "Fetching unread mail %s...\n" "$unique_id"
+        mail="$(fetch-mail "$session_id")"
+        mail="$(<<< "$mail" $FORMAT_MAIL)"
+        <<< "$mail" queue-message
+
+        local mail_id
+        mail_id="$(json -n --arg uid "$unique_id" --arg sid "$session_id" '{ ($uid): $sid }')"
+        <<< "$mail_id" update-state state_do-update-read-mails
+    done <<< "$unread_mails"
+}
+
 cmd_mail-mark-all-as-read()
 {
     printf "Checking for old mails...\n"
@@ -239,6 +265,11 @@ secret_do-update()
     local result
     result="$(json '.')"
     <<< "$result" cat > "$SECRET"
+}
+
+state_do-read-find-unread-mails()
+{
+    json -r --argfile state "$STATE" 'del(.[$state | .mail.read | keys | .[]]) | to_entries | .[] | .key + " " + .value'
 }
 
 state_do-update-read-mails()
