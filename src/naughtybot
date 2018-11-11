@@ -8,6 +8,7 @@ main()
 {
     STATE="$STATE_DIR/naughtybot-state.json"
     SECRET="$SECRET_DIR/naughtybot-secret.json"
+    FLUSH_LOCK="$STATE_DIR/naughtybot-flush.lock"
 
     [[ -e $STATE ]] || echo "{}" > "$STATE"
     [[ -e $SECRET ]] || echo "{}" > "$SECRET"
@@ -138,6 +139,19 @@ cmd_queue()
     queue-message
 }
 
+cmd_send()
+{
+    queue-message
+    acquire-flush-lock-or-quit
+    flush-messages
+}
+
+cmd_flush()
+{
+    acquire-flush-lock-or-quit
+    flush-messages
+}
+
 # - requires_bin VAR path-to-bin
 # Ensures path-to-bin exists and is executable.
 # If so, it is equivalent to VAR="path-to-bin".
@@ -172,11 +186,47 @@ queue-message()
     printf "Queued message (%d in queue).\n" "$(message-count)"
 }
 
+# Send all messages from sending queue to Telegram.
+flush-messages()
+{
+    ensure-flush-locked
+
+    while has-message; do
+        flush-first-message
+    done
+
+    printf "All messages has been sent.\n"
+}
+
+# - if has-message; then ...; fi
+# Check if the sending queue is not empty.
+has-message()
+{
+    read-state state_do-read-has-message
+}
+
 # - count="$(message-count)"
 # Get number of messages in the sending queue.
 message-count()
 {
     read-state state_do-read-message-count
+}
+
+# - flush-first-message
+# Send first message from sending queue to Telegram.
+flush-first-message()
+{
+    ensure-flush-locked
+
+    printf "Sending message (%d pending)...\n" "$(message-count)"
+
+    local message
+    message="$(read-state state_do-read-first-message-as-json)"
+    message="$(<<< "$message" json --arg chat "$SECRET_BOT_CHAT" '{ chat_id: $chat, text: ., parse_mode: "Markdown" }')"
+
+    <<< "$message" fetch-telegram /sendMessage > /dev/null
+
+    update-state state_do-update-remove-first-message
 }
 
 secret_do-read()
@@ -205,9 +255,26 @@ state_do-update-append-message()
     <<< "$result" cat > "$STATE"
 }
 
+state_do-read-has-message()
+{
+    json -e '.message.pending | length > 0' "$STATE" > /dev/null
+}
+
 state_do-read-message-count()
 {
     json '.message.pending | length' "$STATE"
+}
+
+state_do-read-first-message-as-json()
+{
+    json '.message.pending[0]' "$STATE"
+}
+
+state_do-update-remove-first-message()
+{
+    local result
+    result="$(json 'del(.message.pending[0])' "$STATE")"
+    <<< "$result" cat > "$STATE"
 }
 
 # - transaction file mode func
@@ -250,6 +317,21 @@ update-state()
     transaction "$STATE" -x "$1"
 }
 
+acquire-flush-lock-or-quit()
+{
+    exec 990>> "$FLUSH_LOCK"
+    "$FLOCK" -nx 990 || exit 0
+    FLUSH_LOCKED=1
+}
+
+ensure-flush-locked()
+{
+    [[ ! -z $FLUSH_LOCKED ]] || {
+        >&2 printf "internal error: \e[1;31mforgot to acquire-flush-lock-or-quit\e[0m\n"
+        exit 1
+    }
+}
+
 json()
 {
     "$JQ" --indent 4 "$@"
@@ -263,6 +345,17 @@ fetch-mail()
     local opts="-sSfL $SECRET_MAIL_OPTION"
     "$CURL" $opts "$SECRET_MAIL_URL$uri" --netrc-file <(cat <<< "$SECRET_MAIL_CREDENTIAL") "$@" || {
         >&2 printf "Failed to \e[1;31mfetch mail\e[0m: %s\n" "$SECRET_MAIL_URL$uri $*"
+        exit 1
+    }
+}
+
+fetch-telegram()
+{
+    local uri="$1"
+    shift
+    [[ $uri != /* ]] && uri="/$uri"
+    "$CURL" -sSfL "https://api.telegram.org/bot$SECRET_BOT_TOKEN$uri" -d '@-' -H 'Content-Type: application/json' "$@" || {
+        >&2 printf "Failed to \e[1;31mfetch telegram\e[0m: %s\n" "$uri $*"
         exit 1
     }
 }

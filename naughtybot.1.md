@@ -15,6 +15,7 @@
     ---------------------------------------------
     naughtybot-state.json
     naughtybot-secret.json
+    naughtybot-flush.lock
 
 ## DETAILS
 
