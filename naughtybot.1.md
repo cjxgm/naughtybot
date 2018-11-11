@@ -25,7 +25,7 @@ flush: Send queued message to telegram. This is blocking operation.
 setup: Edit or create naughtybot-secret.json.
 mail-check: Check new mails, format properly, and put into send queue.
 mail-mark-all-as-read: On your first run, mark all existing mails as read. Otherwise, all your old mails will be send.
-auto-flush: Start a systemd transient user unit to monitor changes to the queue. Flushing will happen automatically when the queue is modified.
+auto-flush: Start a systemd transient user unit to flush message queue every 4 seconds.
 auto-check: Start a systemd transient user unit to check mail every 10 seconds.
 
 ## FILES

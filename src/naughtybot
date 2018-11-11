@@ -178,6 +178,28 @@ cmd_flush()
     flush-messages
 }
 
+cmd_auto-check()
+{
+    requires-bin SYSTEMD_RUN "$(which systemd-run)"
+    "$SYSTEMD_RUN" \
+        --user \
+        --on-active=0s \
+        --on-unit-inactive=10s \
+        -- \
+        "$0" mail-check
+}
+
+cmd_auto-flush()
+{
+    requires-bin SYSTEMD_RUN "$(which systemd-run)"
+    "$SYSTEMD_RUN" \
+        --user \
+        --on-active=0s \
+        --on-unit-inactive=4s \
+        -- \
+        "$0" flush
+}
+
 # - requires_bin VAR path-to-bin
 # Ensures path-to-bin exists and is executable.
 # If so, it is equivalent to VAR="path-to-bin".
